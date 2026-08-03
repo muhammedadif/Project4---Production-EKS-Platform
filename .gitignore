@@ -42,3 +42,10 @@ Thumbs.db
 *.pem
 *.key
 credentials
+
+# Java / Maven
+**/target/
+*.class
+*.jar
+*.war
+*.ear
