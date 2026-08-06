@@ -33,6 +33,7 @@
 	<tomcat.version>11.0.22</tomcat.version>
 	<jackson-bom.version>3.1.4</jackson-bom.version>
 	<jackson-2-bom.version>2.21.4</jackson-2-bom.version>
+	<spring-data-bom.version>2025.1.6</spring-data-bom.version>
 	 
         <spring-cloud.version>2025.1.2</spring-cloud.version>
         <chaos-monkey-spring-boot.version>3.1.0</chaos-monkey-spring-boot.version>
