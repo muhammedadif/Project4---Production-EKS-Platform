@@ -16,10 +16,12 @@ env:
 
 jobs:
   build:
+
     name: Build and Test
     runs-on: ubuntu-latest
 
     steps:
+
       - name: Checkout repository
         uses: actions/checkout@v5
 
@@ -42,3 +44,72 @@ jobs:
       - name: Build and Test application
         run: ./mvnw clean verify
         working-directory: application/spring-petclinic-microservices
+
+      - name: Build Docker images
+        run: |
+          IMAGE_TAG="sha-${GITHUB_SHA::7}"
+
+          services=(
+            "config:spring-petclinic-config-server"
+            "discovery:spring-petclinic-discovery-server"
+            "customers:spring-petclinic-customers-service"
+            "visits:spring-petclinic-visits-service"
+            "vets:spring-petclinic-vets-service"
+            "gateway:spring-petclinic-api-gateway"
+            "admin:spring-petclinic-admin-server"
+          )
+
+          for entry in "${services[@]}"; do
+            service="${entry%%:*}"
+            module="${entry##*:}"
+
+            jar=$(find "application/spring-petclinic-microservices/${module}/target" \
+              -maxdepth 1 -name "*.jar" ! -name "*sources*" ! -name "*javadoc*" \
+              | head -n 1)
+
+            if [ -z "$jar" ]; then
+              echo "ERROR: JAR not found for ${service}"
+              exit 1
+            fi
+
+            echo "Building petclinic-${service}:${IMAGE_TAG}"
+
+            docker build \
+              --build-arg JAR_FILE="$jar" \
+              -t "petclinic-${service}:${IMAGE_TAG}" \
+              -f docker/Dockerfile \
+              .
+          done
+
+      - name: Install Trivy
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget
+          wget -qO /tmp/trivy.deb \
+            https://github.com/aquasecurity/trivy/releases/latest/download/trivy_0.67.2_Linux-64bit.deb
+          sudo dpkg -i /tmp/trivy.deb
+          trivy --version 
+
+      - name: Scan Docker images
+        run: |
+          IMAGE_TAG="sha-${GITHUB_SHA::7}"
+
+          services=(
+            config
+            discovery
+            customers
+            visits
+            vets
+            gateway
+            admin
+          )
+
+          for service in "${services[@]}"; do
+            echo "Scanning petclinic-${service}:${IMAGE_TAG}"
+
+            trivy image \
+              --severity HIGH,CRITICAL \
+              --exit-code 1 \
+              --ignore-unfixed \
+              "petclinic-${service}:${IMAGE_TAG}"
+          done
