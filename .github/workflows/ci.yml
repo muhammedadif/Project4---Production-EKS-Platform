@@ -48,38 +48,53 @@ jobs:
       - name: Build Docker images
         run: |
           IMAGE_TAG="sha-${GITHUB_SHA::7}"
+          DOCKERFILE="$(pwd)/docker/Dockerfile"
 
           services=(
-            "config:spring-petclinic-config-server"
-            "discovery:spring-petclinic-discovery-server"
-            "customers:spring-petclinic-customers-service"
-            "visits:spring-petclinic-visits-service"
-            "vets:spring-petclinic-vets-service"
-            "gateway:spring-petclinic-api-gateway"
-            "admin:spring-petclinic-admin-server"
+            "spring-petclinic-config-server:petclinic-config:8888"
+            "spring-petclinic-discovery-server:petclinic-discovery:8761"
+            "spring-petclinic-customers-service:petclinic-customers:8081"
+            "spring-petclinic-visits-service:petclinic-visits:8082"
+            "spring-petclinic-vets-service:petclinic-vets:8083"
+            "spring-petclinic-api-gateway:petclinic-gateway:8080"
+            "spring-petclinic-admin-server:petclinic-admin:9090"
           )
 
           for entry in "${services[@]}"; do
-            service="${entry%%:*}"
-            module="${entry##*:}"
+            IFS=':' read -r service_dir image_name port <<< "$entry"
 
-            jar=$(find "application/spring-petclinic-microservices/${module}/target" \
-              -maxdepth 1 -name "*.jar" ! -name "*sources*" ! -name "*javadoc*" \
-              | head -n 1)
+            target_dir="application/spring-petclinic-microservices/${service_dir}/target"
 
-            if [ -z "$jar" ]; then
-              echo "ERROR: JAR not found for ${service}"
+            jar_file=$(find "$target_dir" \
+              -maxdepth 1 \
+              -name "*.jar" \
+              ! -name "*.original" \
+              | head -1)
+
+            if [ -z "$jar_file" ]; then
+              echo "ERROR: JAR not found for ${service_dir}"
               exit 1
             fi
 
-            echo "Building petclinic-${service}:${IMAGE_TAG}"
+            jar_name=$(basename "$jar_file" .jar)
+
+            echo "======================================"
+            echo "Building ${image_name}:${IMAGE_TAG}"
+            echo "JAR: ${jar_name}.jar"
+            echo "Port: ${port}"
+            echo "======================================"
 
             docker build \
-              --build-arg JAR_FILE="$jar" \
-              -t "petclinic-${service}:${IMAGE_TAG}" \
-              -f docker/Dockerfile \
-              .
+              -f "$DOCKERFILE" \
+              --build-arg ARTIFACT_NAME="$jar_name" \
+              --build-arg EXPOSED_PORT="$port" \
+              -t "${image_name}:${IMAGE_TAG}" \
+              "$target_dir"
           done
+
+          docker images --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}" \
+            | grep petclinic
+
 
       - name: Install Trivy
         run: |
