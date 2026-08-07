@@ -16,12 +16,10 @@ env:
 
 jobs:
   build:
-
     name: Build and Test
     runs-on: ubuntu-latest
 
     steps:
-
       - name: Checkout repository
         uses: actions/checkout@v5
 
@@ -34,16 +32,16 @@ jobs:
           cache-dependency-path: application/spring-petclinic-microservices/**/pom.xml
 
       - name: Verify environment
+        working-directory: application/spring-petclinic-microservices
         run: |
           echo "Git commit: $GITHUB_SHA"
           java -version
           docker --version
           ./mvnw --version
-        working-directory: application/spring-petclinic-microservices
 
       - name: Build and Test application
-        run: ./mvnw clean verify
         working-directory: application/spring-petclinic-microservices
+        run: ./mvnw clean verify
 
       - name: Build Docker images
         run: |
@@ -92,8 +90,7 @@ jobs:
               "$target_dir"
           done
 
-          docker images --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}" \
-            | grep petclinic
+          docker images --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}" | grep petclinic
 
       - name: Install Trivy
         run: |
@@ -111,7 +108,6 @@ jobs:
           sudo apt-get install -y trivy
 
           trivy --version
-
 
       - name: Scan Docker images
         run: |
@@ -137,13 +133,12 @@ jobs:
               "petclinic-${service}:${IMAGE_TAG}"
           done
 
-       - name: Configure AWS credentials
-         uses: aws-actions/configure-aws-credentials@v5
-         with:
-           role-to-assume: arn:aws:iam::134163282485:role/GitHubActions-ProductionEKSPlatform 
-           aws-region: ${{ env.AWS_REGION }}
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: arn:aws:iam::134163282485:role/GitHubActions-ProductionEKSPlatform
+          aws-region: ${{ env.AWS_REGION }}
 
-       - name: Login to Amazon ECR
-         id: login-ecr
-         uses: aws-actions/amazon-ecr-login@v2
-
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
