@@ -16,7 +16,7 @@ env:
 
 jobs:
   build:
-    name: Build and Test
+    name: Build, Scan and Publish Images
     runs-on: ubuntu-latest
 
     steps:
@@ -31,19 +31,18 @@ jobs:
           cache: maven
           cache-dependency-path: application/spring-petclinic-microservices/**/pom.xml
 
-      - name: Verify environment
+      - name: Verify build environment
         working-directory: application/spring-petclinic-microservices
         run: |
-          echo "Git commit: $GITHUB_SHA"
           java -version
           docker --version
           ./mvnw --version
 
-      - name: Build and Test application
+      - name: Build and Test
         working-directory: application/spring-petclinic-microservices
         run: ./mvnw clean verify
 
-      - name: Build Docker images
+      - name: Build Docker Images
         run: |
           IMAGE_TAG="sha-${GITHUB_SHA::7}"
           DOCKERFILE="$(pwd)/docker/Dockerfile"
@@ -63,24 +62,14 @@ jobs:
 
             target_dir="application/spring-petclinic-microservices/${service_dir}/target"
 
-            jar_file=$(find "$target_dir" \
-              -maxdepth 1 \
-              -name "*.jar" \
-              ! -name "*.original" \
-              | head -1)
+            jar_file=$(find "$target_dir" -maxdepth 1 -name "*.jar" ! -name "*.original" | head -1)
 
             if [ -z "$jar_file" ]; then
-              echo "ERROR: JAR not found for ${service_dir}"
+              echo "JAR not found for ${service_dir}"
               exit 1
             fi
 
             jar_name=$(basename "$jar_file" .jar)
-
-            echo "======================================"
-            echo "Building ${image_name}:${IMAGE_TAG}"
-            echo "JAR: ${jar_name}.jar"
-            echo "Port: ${port}"
-            echo "======================================"
 
             docker build \
               -f "$DOCKERFILE" \
@@ -90,16 +79,13 @@ jobs:
               "$target_dir"
           done
 
-          docker images --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}" | grep petclinic
-
       - name: Install Trivy
         run: |
           sudo apt-get update
           sudo apt-get install -y wget gnupg
-
           wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key \
             | gpg --dearmor \
-            | sudo tee /usr/share/keyrings/trivy.gpg > /dev/null
+            | sudo tee /usr/share/keyrings/trivy.gpg >/dev/null
 
           echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb generic main" \
             | sudo tee /etc/apt/sources.list.d/trivy.list
@@ -107,25 +93,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y trivy
 
-          trivy --version
-
-      - name: Scan Docker images
+      - name: Scan Docker Images
         run: |
           IMAGE_TAG="sha-${GITHUB_SHA::7}"
 
-          services=(
-            config
-            discovery
-            customers
-            visits
-            vets
-            gateway
-            admin
-          )
-
-          for service in "${services[@]}"; do
-            echo "Scanning petclinic-${service}:${IMAGE_TAG}"
-
+          for service in config discovery customers visits vets gateway admin; do
             trivy image \
               --severity HIGH,CRITICAL \
               --exit-code 1 \
@@ -142,3 +114,32 @@ jobs:
       - name: Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Discover AWS Account ID
+        id: aws
+        run: |
+          echo "ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)" >> "$GITHUB_ENV"
+
+      - name: Tag and Push Images
+        run: |
+          IMAGE_TAG="sha-${GITHUB_SHA::7}"
+          REGISTRY="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+
+          for service in config discovery customers visits vets gateway admin; do
+            docker tag \
+              "petclinic-${service}:${IMAGE_TAG}" \
+              "${REGISTRY}/petclinic-${service}:${IMAGE_TAG}"
+
+            docker push \
+              "${REGISTRY}/petclinic-${service}:${IMAGE_TAG}"
+          done
+
+      - name: Verify Images in Amazon ECR
+        run: |
+          IMAGE_TAG="sha-${GITHUB_SHA::7}"
+
+          for service in config discovery customers visits vets gateway admin; do
+            aws ecr describe-images \
+              --repository-name "petclinic-${service}" \
+              --image-ids imageTag="${IMAGE_TAG}"
+          done
